@@ -21,23 +21,31 @@ use bevy_app::{App, Plugin};
 
 pub mod brush;
 pub mod kernel;
+pub mod region;
+pub mod tool;
 
-pub use brush::{ActiveBrush, Brush, BrushOp, apply_brush};
+pub use brush::{ActiveBrush, Brush, BrushOp, apply_brush, apply_brush_to_region};
 pub use kernel::{
     FalloffCurve, cells_in_radius, cells_in_radius_uvec, linear_falloff, smoothstep_falloff,
 };
+pub use region::Region;
+pub use tool::ActiveTool;
 
-/// Registers [`ActiveBrush`] with default settings and reflects the brush
-/// types so they show up in `bevy-inspector-egui` and ECS dumps. Adds
-/// no systems — driving the brush is the consumer's job.
+/// Registers [`ActiveBrush`] and [`ActiveTool`] with default settings
+/// and reflects the brush/region/tool types so they show up in
+/// `bevy-inspector-egui` and ECS dumps. Adds no systems — driving the
+/// tools is the consumer's job.
 pub struct CadPlugin;
 
 impl Plugin for CadPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ActiveBrush>()
+            .init_resource::<ActiveTool>()
             .register_type::<ActiveBrush>()
             .register_type::<Brush>()
             .register_type::<BrushOp>()
-            .register_type::<FalloffCurve>();
+            .register_type::<FalloffCurve>()
+            .register_type::<ActiveTool>()
+            .register_type::<Region>();
     }
 }

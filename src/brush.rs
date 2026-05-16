@@ -7,9 +7,11 @@
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::reflect::ReflectResource;
+use bevy_math::UVec2;
 use bevy_reflect::Reflect;
 
 use crate::kernel::FalloffCurve;
+use crate::region::Region;
 
 /// What a brush does to one cell. Names are domain-neutral so the same
 /// op can back different UI tools — spectral's "Raise" is `Add{1.0}`,
@@ -92,6 +94,40 @@ pub fn apply_brush(op: BrushOp, falloff_strength: f32, prior: f32, neighbor_avg:
     }
 }
 
+/// Apply one [`BrushOp`] uniformly over every cell of a [`Region`].
+///
+/// Unlike [`apply_brush`], there is no radius and no falloff — the
+/// region itself is the area, and `strength` is the per-cell blend
+/// amount (clamped to `[0, 1]` inside `apply_brush`). Marquee-style
+/// edits use this: rect-select-then-gain feeds `BrushOp::Multiply`,
+/// rect-select-then-mute feeds `BrushOp::Multiply { factor: 0.0 }`.
+///
+/// The caller exposes its grid via two closures so this helper stays
+/// renderer-agnostic. `read` returns the prior cell value; `write`
+/// commits the new value. Cells outside `dims` are skipped.
+///
+/// Smooth-style ops (`BrushOp::Smooth`) read the prior value as the
+/// neighbor average — meaningful smoothing across a region needs a
+/// separate two-pass pipeline that this helper deliberately does not
+/// try to express.
+pub fn apply_brush_to_region<R, W>(
+    op: BrushOp,
+    strength: f32,
+    region: &Region,
+    dims: (u32, u32),
+    read: R,
+    mut write: W,
+) where
+    R: Fn(UVec2) -> f32,
+    W: FnMut(UVec2, f32),
+{
+    for cell in region.cells(dims) {
+        let prior = read(cell);
+        let next = apply_brush(op, strength, prior, prior);
+        write(cell, next);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +189,76 @@ mod tests {
         // Negative strength clamps to zero — no change.
         let r = apply_brush(BrushOp::Add { delta: 1.0 }, -0.5, 0.42, 0.42);
         assert!((r - 0.42).abs() < 1e-5);
+    }
+
+    #[test]
+    fn region_multiply_zero_mutes_all_cells() {
+        use std::cell::RefCell;
+        let region = Region::Rect {
+            min: UVec2::new(1, 1),
+            max: UVec2::new(3, 3),
+        };
+        let grid = RefCell::new([[0.5_f32; 5]; 5]);
+        apply_brush_to_region(
+            BrushOp::Multiply { factor: 0.0 },
+            1.0,
+            &region,
+            (5, 5),
+            |c| grid.borrow()[c.y as usize][c.x as usize],
+            |c, v| grid.borrow_mut()[c.y as usize][c.x as usize] = v,
+        );
+        let g = grid.borrow();
+        for y in 0..5 {
+            for x in 0..5 {
+                let v = g[y][x];
+                if (1..=3).contains(&x) && (1..=3).contains(&y) {
+                    assert!(v.abs() < 1e-5, "cell ({x},{y}) should be muted, got {v}");
+                } else {
+                    assert!((v - 0.5).abs() < 1e-5, "cell ({x},{y}) untouched, got {v}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn region_set_full_strength_lands_on_value() {
+        use std::cell::RefCell;
+        let region = Region::Rect {
+            min: UVec2::new(0, 0),
+            max: UVec2::new(1, 1),
+        };
+        let grid = RefCell::new([[0.0_f32; 2]; 2]);
+        apply_brush_to_region(
+            BrushOp::Set { value: 0.7 },
+            1.0,
+            &region,
+            (2, 2),
+            |c| grid.borrow()[c.y as usize][c.x as usize],
+            |c, v| grid.borrow_mut()[c.y as usize][c.x as usize] = v,
+        );
+        for row in *grid.borrow() {
+            for v in row {
+                assert!((v - 0.7).abs() < 1e-5);
+            }
+        }
+    }
+
+    #[test]
+    fn region_skips_cells_outside_dims() {
+        let region = Region::Rect {
+            min: UVec2::new(8, 8),
+            max: UVec2::new(12, 12),
+        };
+        let mut writes = 0;
+        apply_brush_to_region(
+            BrushOp::Add { delta: 1.0 },
+            1.0,
+            &region,
+            (10, 10),
+            |_| 0.0,
+            |_, _| writes += 1,
+        );
+        // x in 8..=9, y in 8..=9 → 4 in-bounds cells
+        assert_eq!(writes, 4);
     }
 }
