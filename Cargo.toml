@@ -1,0 +1,24 @@
+[package]
+name = "bevy_cad"
+version = "0.1.0"
+edition = "2024"
+description = "CAD-style brush primitives for Bevy: brush ops, kernel math, active-brush resource"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/PoHsuanLai/bevy_cad"
+keywords = ["bevy", "cad", "brush", "paint"]
+categories = ["game-development", "graphics"]
+readme = "README.md"
+
+[dependencies]
+# Granular Bevy crates — no rendering, no picking. Same low-level dep
+# style that crates like `bevy_input` use.
+bevy_app = "0.18"
+bevy_ecs = "0.18"
+bevy_math = "0.18"
+bevy_reflect = "0.18"
+
+[dev-dependencies]
+# The README quick-start uses the umbrella `bevy` for `DefaultPlugins`;
+# tests only need the granular crates above. Pulled in dev so the
+# doctest compiles when we add one.
+bevy = "0.18"
